@@ -35,11 +35,6 @@ type Decoder struct {
     stopped         bool
 }
 
-type ControlFrame struct {
-    ControlType     uint32
-    ContentTypes    [][]byte
-}
-
 func NewDecoder(v interface{}, opt *DecoderOptions) (dec *Decoder, err error) {
     r, ok := v.(io.Reader)
     if ! ok {
@@ -192,18 +187,6 @@ func (dec *Decoder) readControlFrame() (cf *ControlFrame, err error) {
     }
     
     return
-}
-
-func matchContentTypes(a [][]byte, b [][]byte) (c [][]byte) {
-    matched := make([][]byte, 0, 0)
-    for _, contentTypeA := range a {
-        for _, contentTypeB := range b {
-            if bytes.Compare(contentTypeA, contentTypeB) == 0 {
-                matched = append(matched, contentTypeA)
-            }
-        }
-    }
-    return matched
 }
 
 func (dec *Decoder) sendControlFrame(cf *ControlFrame) (err error) {

@@ -23,21 +23,54 @@ import "io"
 
 type EncoderOptions struct {
     ContentType     []byte
+    Bidirectional   bool
 }
 
 type Encoder struct {
+    reader          *bufio.Reader
     writer          *bufio.Writer
     opt             EncoderOptions
     buf             []byte
 }
 
-func NewEncoder(w io.Writer, opt *EncoderOptions) (enc *Encoder, err error) {
+func NewEncoder(v interface{}, opt *EncoderOptions) (enc *Encoder, err error) {
+    w, ok := v.(io.Writer)
+    if ! ok {
+       return enc, ErrType
+    }
     if opt == nil {
         opt = &EncoderOptions{}
     }
     enc = &Encoder{
+        reader:     nil,
         writer:     bufio.NewWriter(w),
         opt:        *opt,
+    }
+
+    if opt.Bidirectional {
+        r, ok := v.(io.Reader)
+        if ! ok {
+           return enc, ErrType
+        }
+        enc.reader = bufio.NewReader(r)
+
+        // Write the ready control frame.
+        err = enc.writeControlReady()
+        if err != nil {
+            return enc, err
+        }
+
+        // Read the accept control frame.
+        cf, err := enc.readControlFrameType(CONTROL_ACCEPT)
+        if err != nil {
+            return enc, err
+        }
+
+        // Check content type.
+        matched := matchContentTypes(cf.ContentTypes, [][]byte{enc.opt.ContentType})
+        if len(matched) != 1 {
+            return enc, ErrContentTypeMismatch
+        }
     }
 
     // Write the start control frame.
@@ -53,7 +86,12 @@ func (enc *Encoder) Close() error {
     return enc.writeControlStop()
 }
 
-func (enc *Encoder) writeControlStart() (err error) {
+func (enc *Encoder) readControlFrameType(controlType int) (cf *ControlFrame, err error) {
+    return readControlFrameType(enc.reader, uint32(controlType))
+}
+
+
+func (enc *Encoder) writeControlFrameAndContentType(controlType int) (err error) {
     totalLen := 0
 
     // Calculate the total amount of space needed for the control frame.
@@ -100,7 +138,7 @@ func (enc *Encoder) writeControlStart() (err error) {
     }
 
     // Control type: 32-bit BE integer.
-    err = binary.Write(buf, binary.BigEndian, uint32(CONTROL_START))
+    err = binary.Write(buf, binary.BigEndian, uint32(controlType))
     if err != nil {
         return
     }
@@ -132,6 +170,14 @@ func (enc *Encoder) writeControlStart() (err error) {
     }
 
     return enc.Flush()
+}
+
+func (enc *Encoder) writeControlReady() (err error) {
+    return enc.writeControlFrameAndContentType(CONTROL_READY)
+}
+
+func (enc *Encoder) writeControlStart() (err error) {
+    return enc.writeControlFrameAndContentType(CONTROL_START)
 }
 
 func (enc *Encoder) writeControlStop() (err error) {
